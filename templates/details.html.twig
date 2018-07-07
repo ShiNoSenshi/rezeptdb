@@ -72,8 +72,12 @@
                         {% if app.user.username == 'admin' %}
 							<a href="{{ path('editRecipe', {'id': recipe.id}) }}" class="ui mini button right"><i
 										class="edit icon"></i> Bearbeiten</a>
-						<a href="{{ path('editRecipeImages', {'id': recipe.id}) }}" class="ui mini button right"><i
-									class="edit icon"></i> Fotos Bearbeiten</a>
+							<a href="{{ path('editRecipeImages', {'id': recipe.id}) }}" class="ui mini button right"><i
+										class="edit icon"></i> Fotos Bearbeiten</a>
+							<a href="{{ path('deleteRecipe', {'id': recipe.id}) }}" 
+										onclick="return confirm('Willst du das Rezept wirklich löschen?')" 
+										class="ui mini button right">
+										<i class="delete icon"></i>Löschen</a>
 						{% endif %}
 					</p>
 				</div>
