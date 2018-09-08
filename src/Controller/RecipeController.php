@@ -4,10 +4,9 @@
 namespace App\Controller;
 
 use App\Entity\Image;
-use App\Entity\Ingredient;
 use App\Entity\Recipe;
 use App\Entity\Tag;
-use App\Form\Type\IngredientType;
+use App\Form\Type\IngredientGroupType;
 use App\Service\AbstractDOMParser;
 use App\Service\ChefkochDOMParser;
 use App\Service\GenericWordpressDOMParser;
@@ -47,7 +46,7 @@ class RecipeController extends Controller {
 	 * @Route("/", name="recipeIndex")
 	 */
 	public function indexAction() {
-		$recipes = $this->getDoctrine()->getRepository(Recipe::class)->findBy([], ['modified' => 'DESC'], 20);
+		$recipes = $this->getDoctrine()->getRepository(Recipe::class)->fetchForIndex();
 		$randomRecipes = $this->getDoctrine()->getRepository(Recipe::class)->createQueryBuilder('r')->orderBy('RAND()')->setMaxResults(4)->getQuery()->getResult();
 		return $this->render('index.html.twig', array(
 			'recipes' => $recipes,
@@ -60,10 +59,7 @@ class RecipeController extends Controller {
 	 */
 	public function loadMoreRecipesAction(Request $request) {
 		$excludeIds = $request->get('excludeIds');
-		$recipes = $this->getDoctrine()->getRepository(Recipe::class)->createQueryBuilder('r')
-			->where('r.id NOT IN (:excludedIds)')->setParameter('excludedIds', $excludeIds)
-			->orderBy('r.modified', 'DESC')
-			->setMaxResults(20)->getQuery()->getResult();
+		$recipes = $this->getDoctrine()->getRepository(Recipe::class)->fetchForIndex($excludeIds);
 
 		if (empty($recipes)) {
 			return new JsonResponse(['message' => 'Keine Rezepte mehr :(']);
@@ -100,9 +96,7 @@ class RecipeController extends Controller {
 	 * @Route("/recipes/add", name="addRecipe")
 	 */
 	public function addAction(Request $request) {
-		$recipe = new Recipe();
-		$recipe->addIngredient(new Ingredient());
-		return $this->formAction($request, $recipe);
+		return $this->formAction($request, new Recipe());
 	}
 
 	/**
@@ -164,6 +158,10 @@ class RecipeController extends Controller {
 	 */
 	public function showByTag($tagLabel) {
 		$tag = $this->getDoctrine()->getRepository(Tag::class)->findOneBy(['label' => $tagLabel]);
+		if($tag === null) {
+            $this->addFlash('error', 'Dieser Tag existiert leider nicht!');
+		    return $this->redirectToRoute('listRecipeTags');
+        }
 		$builder = $this->getDoctrine()->getRepository(Recipe::class)->createQueryBuilder('r');
 		$recipes = $builder->join('r.tags', 't')->where('t = :tag')->setParameter('tag', $tag)->getQuery()->getResult();
 		return $this->render('recipesByTags.html.twig', array(
@@ -219,11 +217,15 @@ class RecipeController extends Controller {
 			])
 			->add('submit', SubmitType::class, ['label' => 'Rezept speichern']);
 
-		$formBuilder->add('ingredients', CollectionType::class, array(
+		$formBuilder->add('ingredientGroups', CollectionType::class, array(
 			'label' => 'Zutaten',
 			'allow_add' => true,
 			'allow_delete' => true,
-			'entry_type' => IngredientType::class,
+			'delete_empty' => true,
+			'attr' => ['class' => 'ingredientGroupList'],
+			'by_reference' => false,
+			'prototype_name' => '__groupcounter__',
+			'entry_type' => IngredientGroupType::class,
 			'entry_options' => array(
 				'label' => false,
 				'required' => false,
@@ -237,15 +239,12 @@ class RecipeController extends Controller {
 
 		if ($form->isSubmitted() && $form->isValid()) {
 
+
 			$this->processSubmittedTags($recipe);
 			$this->processFileUploads($recipe);
 			$this->processRemoteImages($recipe);
 			$this->removeNoLongerUsedImages($recipe);
-
-			//TODO replace this hack?
-			foreach ($recipe->getIngredients() as $ingredient) {
-				$ingredient->setRecipe($recipe);
-			}
+			$recipe->removeEmptyIngredients();
 
 			$this->getDoctrine()->getManager()->persist($recipe);
 			$this->getDoctrine()->getManager()->flush();
@@ -416,10 +415,12 @@ class RecipeController extends Controller {
 		$matchedIngredients = 0;
 
 		foreach ($wantedIngredients as $wantedIngredient) {
-			foreach ($recipe->getIngredients() as $ingredient) {
-				if (strpos(strtolower($ingredient->getLabel()), strtolower($wantedIngredient)) !== false) {
-					$matchedIngredients++;
-					break;
+			foreach ($recipe->getIngredientGroups() as $group) {
+				foreach ($group->getIngredients() as $ingredient) {
+					if (strpos(strtolower($ingredient->getLabel()), strtolower($wantedIngredient)) !== false) {
+						$matchedIngredients++;
+						break;
+					}
 				}
 			}
 		}
